@@ -1,11 +1,9 @@
 robogen
-A Machine Learning approach to 'Robot Game <http://robotgame.net/>'__
-=====================================================================
+=======
+### A Machine Learning approach to [Robot Game](http://robotgame.net/)
 
 Usage
 -----
-
-::
 
     usage: robogen.py [-h] [-l LOAD_FILE] [-s SAVE_FILE] [-g GENS] [-p PROCESSES]
 
@@ -27,9 +25,9 @@ Acknowledgements
 **rgkit**
 
 This software uses a modified version of 
-'rgkit <https://github.com/RobotGame/rgkit>'__, the game engine for Robot Game.
+[rgkit](https://github.com/RobotGame/rgkit), the game engine for Robot Game.
 
 **robotgame-bots**
 
 This software includes open-source bots from 
-'robotgame-bots <https://github.com/mpeterv/robotgame-bots>'__.
+[robotgame-bots](https://github.com/mpeterv/robotgame-bots).
