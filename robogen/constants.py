@@ -1,10 +1,10 @@
 
 # Population Globals
-pop_size = 10
+pop_size = 7
 # These must sum to pop_size
 elite_size = 4
-lo_mut_size = 3
-hi_mut_size = 2
+lo_mut_size = 1
+hi_mut_size = 1
 cross_size = 1
 
 # Mutation Globals
@@ -32,5 +32,5 @@ backup_frequency = 10
 rloc_max_step = 2
 default_cpu_count = 7
 num_coded_opponents = 1
-games_per_scoring = 10
+games_per_scoring = 3
 rloc_gauss_sigma = 5

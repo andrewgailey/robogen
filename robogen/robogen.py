@@ -154,10 +154,10 @@ def initial_score_individuals(args):
         
     return individual.score
     
-def score_elites(args):
+def break_ties(args):
     
     individual = args[0]
-    top_individuals = args[1]
+    tied_individuals = args[1]
     options = rgrun.Options()
     options.headless = True
     options.quiet = 10
@@ -167,7 +167,7 @@ def score_elites(args):
     
     # AS PLAYER 1
     # Play against other elites in generation
-    for opponent in top_individuals:
+    for opponent in tied_individuals:
         if individual is not opponent:
             players[1] = Player(name="individual", robot=opponent.get_robot())
             results = rgrun.Runner(players=players, options=options).run()
@@ -176,7 +176,7 @@ def score_elites(args):
     # AS PLAYER 2
     players = [None, Player(robot=individual.get_robot())]
     # Play against other elites in generation
-    for opponent in top_individuals:
+    for opponent in tied_individuals:
         if individual is not opponent:
             players[0] = Player(name="individual", robot=opponent.get_robot())
             results = rgrun.Runner(players=players, options=options).run()
@@ -200,48 +200,58 @@ def worker(args):
     
     # For each generation
     for gen_num in range(1, args.gens+1):
+    
         # INITIAL SCORING
-        # For each individual
+        # Individual VS Elites and Coded Bots
         individual_pool = Pool(processes=args.processes)
-        scores = individual_pool.map(initial_score_individuals, [(x, gen) for x in gen.population])
+        scores = individual_pool.map(initial_score_individuals, 
+                                     [(x, gen) for x in gen.population])
+        sorted_scores = []
         individual_pool.close()
         individual_pool.join()
         for x in range(len(gen.population)):
             gen.population[x].score = scores[x]
-
-        #gen.sort_by_score()
+            sorted_scores.append(gen.population[x].score)
+        sorted_scores.sort()
+        sorted_scores.reverse()
         
         # ELITE SCORING AND SORTING
-        top_score = 0
-        for individual in gen.population:
-            if individual.score > top_score:
-                top_score = individual.score
-        top_individuals = []
-        for individual in gen.population:
-            if individual.score == top_score:
-                top_individuals.append(individual)
-        if len(top_individuals) > 1:
+        # Break Ties that cross the ELITE/NON-ELITE cutoff
+        num_elites = constants.elite_size
+        if sorted_scores[num_elites-1] == sorted_scores[num_elites]:
+            tie_score = sorted_scores[num_elites]
+            tied_individuals = []
+            for individual in gen.population:
+                if individual.score == tie_score:
+                    tied_individuals.append(individual)
+            # Break The Ties
             individual_pool = Pool(processes=args.processes)
-            top_scores = individual_pool.map(score_elites, [(x, top_individuals) for x in top_individuals])
+            finer_scores = individual_pool.map(break_ties, 
+                               [(x, tied_individuals) for x in tied_individuals])
             individual_pool.close()
             individual_pool.join()
-            for x in range(len(top_individuals)):
-                top_individuals[x].score = ((top_score * 2 * (len(top_individuals)-1)) +
-                        top_scores[x]) / float(2 * (len(top_individuals)-1))
+            # New scores are in range [tie_score, tie_score+1)
+            for x in range(len(tied_individuals)):
+                tied_individuals[x].score = ((tie_score * 2 * (len(tied_individuals)-1)) +
+                        finer_scores[x]) / float(2 * (len(tied_individuals)-1))
+
             scores = []
             for x in range(len(gen.population)):
                 scores.append(gen.population[x].score)
         gen.sort_by_score()
         
+        # Clobber if necessary
         try:
             progress_q.get_nowait()
         except Queue.Empty:
             pass
         
+        # If work is done or early stop is requested: save, inform, finish
         if gen_num == args.gens or not early_end_q.empty():
             progress_q.put(ProgressInfo(scores, gen.num, last_backup, save_file))
             save_generation(gen, save_file)
             break
+        # Otherwise: inform and move to next generation
         else:
             if (gen_num % constants.backup_frequency) == (constants.backup_frequency-1):
                 save_generation(gen, constants.default_backup)
@@ -268,8 +278,10 @@ def main():
     scores = []
     progress = None
     
+    # Status Printing Loop until work finished or SPACE pressed
     ended_naturally = False
     while not msvcrt.kbhit() or msvcrt.getch() != " ":
+        # Each finished generation fills the progress_q
         try:
             progress = progress_q.get_nowait()
             if progress.save_file is not None:
@@ -279,11 +291,13 @@ def main():
             pass
         print_status(progress)
         time.sleep(1)
+    # If SPACE was pressed, inform work thread through early_end_q
     if not ended_naturally:
         progress = ProgressInfo()
         clear()
         print "Gracefully exiting and saving progress.\nPlease wait",
         early_end_q.put(ProgressInfo(save_file=True))
+        # Wait for work thread to save progress
         while progress.save_file is None:
             try:
                 print ".",
@@ -318,10 +332,18 @@ def print_status(progress):
         print "Execution finished. Progress saved in", progress.save_file
     print "Last Generation Processed:", progress.gen,
     print "\tLast Backup Generation:", progress.last_backup
-    print "Max Score:", ((2 * constants.games_per_scoring * 
-                        (constants.elite_size + constants.num_coded_opponents)) + 1)
-    score_str = "Sorted Scores"
+    max_score = (2.0 * constants.games_per_scoring * 
+                 (constants.elite_size + constants.num_coded_opponents)) + 1.0
+    scores = []
+    score_str = "       Scores"
     for score in progress.scores:
+        scores.append((score / max_score) * 100.0)
+    for score in scores:
+        score_str = score_str + " : {:.1f}".format(score)
+    score_str = score_str + "\nSorted Scores"
+    scores.sort()
+    scores.reverse()
+    for score in scores:
         score_str = score_str + " : {:.1f}".format(score)
     print score_str
     if progress.save_file is None:
