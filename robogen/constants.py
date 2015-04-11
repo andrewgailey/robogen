@@ -1,11 +1,11 @@
 
 # Population Globals
-pop_size = 7
+pop_size = 10
 # These must sum to pop_size
 elite_size = 4
-lo_mut_size = 1
-hi_mut_size = 1
-cross_size = 1
+lo_mut_size = 2
+hi_mut_size = 2
+cross_size = 2
 
 # Mutation Globals
 lo_muts_per_indiv = 1

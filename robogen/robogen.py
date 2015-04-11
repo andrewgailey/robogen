@@ -132,7 +132,7 @@ def initial_score_individuals(args):
             print "Error opening", loc_path
             sys.exit(1)
         results = rgrun.Runner(players=players, options=options).run()
-        individual.score += sum(p1 > p2 for p1, p2 in results)
+        individual.score += sum(p2 > p1 for p1, p2 in results)
         
     # Play against other elites in generation
     is_elite = (gen.population.index(individual) < constants.elite_size)
@@ -143,46 +143,53 @@ def initial_score_individuals(args):
                 players[0] = Player(name="individual",
                                     robot=gen.population[elite_idx].get_robot())
                 results = rgrun.Runner(players=players, options=options).run()
-                individual.score += sum(p1 > p2 for p1, p2 in results)
+                individual.score += sum(p2 > p1 for p1, p2 in results)
     else:
         # No free win for non-elite contenders
         for elite_idx in range(constants.elite_size):
             players[0] = Player(name="individual",
                                 robot=gen.population[elite_idx].get_robot())
             results = rgrun.Runner(players=players, options=options).run()
-            individual.score += sum(p1 > p2 for p1, p2 in results)
+            individual.score += sum(p2 > p1 for p1, p2 in results)
         
     return individual.score
     
 def break_ties(args):
+    """Breaks ties between a group of Individuals by pitting them against each other.
+    
+    In case of an absolute tie, the 'most elite' is favored.
+    
+    This fills half of a matrix of scores. If we know A's score in (A vs B), then
+    we can determine B's score in (B vs A) without making them compete a second time."""
     
     individual = args[0]
     tied_individuals = args[1]
+    individual_idx = args[2]
     options = rgrun.Options()
     options.headless = True
     options.quiet = 10
     options.n_of_games = constants.games_per_scoring
-    individual.score = 0
     players = [Player(robot=individual.get_robot()), None]
+    results = []
     
     # AS PLAYER 1
     # Play against other elites in generation
-    for opponent in tied_individuals:
-        if individual is not opponent:
-            players[1] = Player(name="individual", robot=opponent.get_robot())
-            results = rgrun.Runner(players=players, options=options).run()
-            individual.score += sum(p1 > p2 for p1, p2 in results)
+    for x in range(individual_idx+1, len(tied_individuals)):
+        opponent = tied_individuals[x]
+        players[1] = Player(name="individual", robot=opponent.get_robot())
+        result = rgrun.Runner(players=players, options=options).run()
+        results.append(sum(p1 >= p2 for p1, p2 in result))
             
     # AS PLAYER 2
     players = [None, Player(robot=individual.get_robot())]
     # Play against other elites in generation
-    for opponent in tied_individuals:
-        if individual is not opponent:
-            players[0] = Player(name="individual", robot=opponent.get_robot())
-            results = rgrun.Runner(players=players, options=options).run()
-            individual.score += sum(p1 > p2 for p1, p2 in results)
+    for x in range(individual_idx+1, len(tied_individuals)):
+        opponent = tied_individuals[x]
+        players[0] = Player(name="individual", robot=opponent.get_robot())
+        result = rgrun.Runner(players=players, options=options).run()
+        results.append(sum(p2 >= p1 for p1, p2 in result))
     
-    return individual.score
+    return results
         
 def worker(args):
 
@@ -226,14 +233,13 @@ def worker(args):
                     tied_individuals.append(individual)
             # Break The Ties
             individual_pool = Pool(processes=args.processes)
-            finer_scores = individual_pool.map(break_ties, 
-                               [(x, tied_individuals) for x in tied_individuals])
+            partial_scores = individual_pool.map(break_ties, 
+                               [(tied_individuals[x], tied_individuals, x) 
+                               for x in range(len(tied_individuals))])
             individual_pool.close()
             individual_pool.join()
             # New scores are in range [tie_score, tie_score+1)
-            for x in range(len(tied_individuals)):
-                tied_individuals[x].score = ((tie_score * 2 * (len(tied_individuals)-1)) +
-                        finer_scores[x]) / float(2 * (len(tied_individuals)-1))
+            fill_scores_from_partial(tied_individuals, partial_scores)
 
             scores = []
             for x in range(len(gen.population)):
@@ -258,6 +264,41 @@ def worker(args):
                 last_backup = gen.num
             progress_q.put(ProgressInfo(scores, gen.num, last_backup))
             gen = gen.propagate()
+            
+def fill_scores_from_partial(tied_individuals, partial_scores):
+    """Creates a full score matrix from a half-full one.
+    
+    Each Individual is pitted (constants.games_per_scoring) times against all other
+    Individuals that come after the Individual in tied_individuals. This fills half of a
+    matrix such that (A vs B) is known, but (B vs A) is unknown. However, (B vs A) is 
+    just (constants.games_per_scoring - (A vs B)).
+    
+    This is only to be used in tandem with break_ties()."""
+    
+    base_score = tied_individuals[0].score
+    
+    num_individuals = len(tied_individuals)
+    for x in range(num_individuals):
+        sub_score = 0
+        # Add in known scores
+        for y in range((num_individuals - 1 - x)):
+            # As Player 1
+            sub_score += partial_scores[x][y]
+            # As Player 2
+            sub_score += partial_scores[x][y + (num_individuals-1-x)]
+        # Add in unknown scores. Note: partial_scores is not actual a half-empty
+        #     matrix. It is an array of arrays of decreasing size. Thus the complicated
+        #     indices.
+        for y in range(x):
+            # As Player 1
+            sub_score += (constants.games_per_scoring - partial_scores[y][x - (y+1)])
+            # As Player 2
+            sub_score += (constants.games_per_scoring - 
+                                 partial_scores[y][x - (y+1) + (num_individuals-1-y)])
+        
+        # New score is 'normalized' to be 0 <= x < 1
+        sub_score = (sub_score / (2.0 * len(tied_individuals) * constants.games_per_scoring))
+        tied_individuals[x].score = base_score + sub_score
                         
 
 def main():
@@ -351,7 +392,7 @@ def print_status(progress):
         
 def clear():
     os.system('cls' if os.name == 'nt' else 'clear')
-            
+    #pass       
 
 if __name__ == '__main__':
     main()

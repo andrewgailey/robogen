@@ -79,12 +79,13 @@ class Rule:
     
     def delete_random_node(self):
         """Deletes a random Node."""
-        
+                
         if not len(self.node_list):
             return
             
         idx = random.randint(0, (len(self.node_list) - 1))
         node = self.node_list[idx]
+                
         # Root
         if node.is_root():
             # No children = delete all
@@ -92,7 +93,7 @@ class Rule:
                 self.node_list.remove(node)
                 self.root = None
             # One child = make child root
-            elif len(node.children) < 2:
+            elif len(node.children) == 1:
                 child = node.children[0]
                 self.node_list.remove(node)
                 self.root = child
@@ -100,13 +101,13 @@ class Rule:
                 child.root = True
             # Multiple children = make first child root
             else:
-                first_child = node.children.index(0)
+                first_child = node.children[0]
                 first_child.parent = None
                 first_child.root = True
                 self.node_list.remove(node)
                 self.root = first_child
                 for idx in range(1, len(node.children)):
-                    child = node.children.index(idx)
+                    child = node.children[idx]
                     child.parent = first_child
                     first_child.insert_child_randomly(child)
         # Not root = shift children up
